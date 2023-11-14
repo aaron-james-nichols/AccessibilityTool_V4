@@ -10,6 +10,7 @@ import pt_ttm as pt
 import utm
 import time
 import geopandas as gpd
+import pandas as pd
 import json
 import osmnx as ox
 
@@ -165,12 +166,13 @@ with col1:
                 transfers = st.toggle('Allow Transfers')
             if public_transport:
                 st.write('**You must upload GTFS data if analyzing public transport.**')
-                uploaded_file = st.file_uploader('Upload a .zip file containing GTFS data.')
+                uploaded_file = st.file_uploader('Upload a .zip file containing GTFS data.', accept_multiple_files = True)
                 if uploaded_file:
                     # GTFS_file = True
-                    filename = uploaded_file.name
-                    if filename[len(filename) - 4:] == '.zip':
-                        GTFS_file = True
+                    for file in uploaded_file:
+                        filename = file.name
+                        if filename[len(filename) - 4:] == '.zip':
+                            GTFS_file = True
 
             st.header('Amenity Selection')
             amenities = st.multiselect('Please select the amenities you would like to count within the catchment areas.', ['Restaurant/Cafe/Bar', 'Education', 'Service', 'Healthcare', 'Supermarket', 'Entertainment'])
@@ -294,9 +296,9 @@ with col1:
 
 
 
-                progress_text = 'Processing...'
-                progress_bar = st.progress(0, text = progress_text)
-                progress_units = int(100 / (len(points) * len(mode_settings)))
+                # progress_text = 'Processing...'
+                progress_bar = st.progress(0, text = '0% Complete')
+                progress_units = 100 / (len(points) * len(mode_settings) * 4) # multiplied by 4 because of the 4 processes.
                 progress_prcnt = 0
                 for hub in points:
 
@@ -370,18 +372,59 @@ with col1:
                             iso_dists.append(non_pt_dists[mode])
 
                             attributes = {'id':mode}
-                            non_pt_isos = iso.isochrone(centroid_lat, centroid_lon, iso_dists, attributes)
+                            # non_pt_isos = iso.isochrone(centroid_lat, centroid_lon, iso_dists, attributes)
+
+                            # print('Getting network...')
+                            G = iso.get_network(centroid_lat, centroid_lon, iso_dists)
+
+                            progress_prcnt += progress_units
+                            # print(progress_prcnt)
+                            if progress_prcnt > 100:
+                                progress_prcnt = 100
+                            progress_prcnt_int = int(progress_prcnt)
+                            progress_bar.progress(progress_prcnt_int, text = str(progress_prcnt_int) + '% Complete')
+
+                            # print('Processing network...')
+                            G_exploded = iso.process_network(G, centroid_lat, centroid_lon)
+
+                            progress_prcnt += progress_units
+                            # print(progress_prcnt)
+                            if progress_prcnt > 100:
+                                progress_prcnt = 100
+                            progress_prcnt_int = int(progress_prcnt)
+                            progress_bar.progress(progress_prcnt_int, text = str(progress_prcnt_int) + '% Complete')
+
+                            # print('Creating isochrones...')
+                            non_pt_isos = iso.calculate_isochrones(centroid_lat, centroid_lon, G_exploded, attributes, iso_dists)
+
+                            progress_prcnt += progress_units
+                            # print(progress_prcnt)
+                            if progress_prcnt > 100:
+                                progress_prcnt = 100
+                            progress_prcnt_int = int(progress_prcnt)
+                            progress_bar.progress(progress_prcnt_int, text = str(progress_prcnt_int) + '% Complete')
 
                             shapely_polygons = non_pt_isos['shapes']
 
+                            # print('Downloading and measuring amenities...')
                             # The following section is for downloading and counting amenities.
                             if allow_amenities == True:
                                 for iso_shape in non_pt_isos['shapes']:
                                     shapely_poly = iso_shape['polygon']
 
-                                    amenities_osm = ox.features.features_from_polygon(shapely_poly, {'amenity':True})
-                                    shops_osm = ox.features.features_from_polygon(shapely_poly, {'shop':True})
+                                    # print('    Downloading amenities...')
+                                    # amenities_osm = ox.features.features_from_polygon(shapely_poly, {'amenity':True})
+                                    # print('    Downloading shops...')
+                                    # shops_osm = ox.features.features_from_polygon(shapely_poly, {'shop':True})
 
+                                    # print('    Downloading OSM features...')
+                                    features_osm = ox.features.features_from_polygon(shapely_poly, {'amenity':True, 'shop':True})
+                                    # print('    Extracting amenities...')
+                                    amenities_osm = features_osm[pd.notnull(features_osm['amenity'])]
+                                    # print('    Extracting shops...')
+                                    shops_osm = features_osm[pd.notnull(features_osm['shop'])]
+
+                                    # print('    Iterating through amenities...')
                                     feature_dicts = []
                                     for index, row in amenities_osm.iterrows():
                                         item_dict = row.to_dict()
@@ -394,6 +437,7 @@ with col1:
                                             lon = geometry.x
                                             feature_dicts.append({'osmid':id, 'amenity':amenity, 'lat':lat, 'lon':lon})
 
+                                    # print('    Iterating through shops...')
                                     for index, row in shops_osm.iterrows():
                                         item_dict = row.to_dict()
                                         amenity = item_dict['shop']
@@ -406,6 +450,7 @@ with col1:
                                             lon = geometry.x
                                             feature_dicts.append({'osmid':id, 'amenity':amenity, 'lat':lat, 'lon':lon})
 
+                                    # print('    Counting things...')
                                     amenity_count = {'id':hub['id'], 'mode':mode}
                                     for type in st.session_state.amenities:
                                         amenity_count[type] = 0
@@ -420,6 +465,13 @@ with col1:
                                     st.session_state.amenity_counts.append(amenity_count)
                                     # The above section is for downloading and counting amenities.
 
+                            progress_prcnt += progress_units
+                            # print(progress_prcnt)
+                            if progress_prcnt > 100:
+                                progress_prcnt = 100
+                            progress_prcnt_int = int(progress_prcnt)
+                            progress_bar.progress(progress_prcnt_int, text = str(progress_prcnt_int) + '% Complete')
+
                             st.session_state.polygon_features.append(non_pt_isos['json'])
                             # final_polygon_list.append(non_pt_isos['json'])
 
@@ -427,6 +479,17 @@ with col1:
                             attributes = {'id':mode}
                             # The walk speed might be built into pt.accessed_stops...
                             pt_iso_stops = pt.accessed_stops(centroid_lat, centroid_lon, GTFS, transfers, start_time, weekday, max_travel_mins, max_walk_mins)
+
+                            pt_progress_units = (100 / (len(mode_settings) * len(points))) / ((len(pt_iso_stops) * 3) + 3)
+                            # print(pt_progress_units)
+
+                            progress_prcnt += pt_progress_units
+                            # print(progress_prcnt)
+                            if progress_prcnt > 100:
+                                progress_prcnt = 100
+                            progress_prcnt_int = int(progress_prcnt)
+                            progress_bar.progress(progress_prcnt_int, text = str(progress_prcnt_int) + '% Complete')
+
                             stop_shapes = []
                             for stop in pt_iso_stops:
                                 stop_name = stop['stop_name']
@@ -436,12 +499,43 @@ with col1:
                                 walk_mins = stop['walk_mins']
                                 distances.append(pt_walk_dist)
                                 attributes = {'id':stop_name}
-                                pt_iso = iso.isochrone(stop_lat, stop_lon, distances, attributes)
+
+                                G = iso.get_network(stop_lat, stop_lon, distances)
+                                progress_prcnt += pt_progress_units
+                                # print(progress_prcnt)
+                                if progress_prcnt > 100:
+                                    progress_prcnt = 100
+                                progress_prcnt_int = int(progress_prcnt)
+                                progress_bar.progress(progress_prcnt_int, text = str(progress_prcnt_int) + '% Complete')
+
+                                G_exploded = iso.process_network(G, stop_lat, stop_lon)
+                                progress_prcnt += pt_progress_units
+                                # print(progress_prcnt)
+                                if progress_prcnt > 100:
+                                    progress_prcnt = 100
+                                progress_prcnt_int = int(progress_prcnt)
+                                progress_bar.progress(progress_prcnt_int, text = str(progress_prcnt_int) + '% Complete')
+
+                                pt_iso = iso.calculate_isochrones(stop_lat, stop_lon, G_exploded, attributes, distances)
+                                progress_prcnt += pt_progress_units
+                                # print(progress_prcnt)
+                                if progress_prcnt > 100:
+                                    progress_prcnt = 100
+                                progress_prcnt_int = int(progress_prcnt)
+                                progress_bar.progress(progress_prcnt_int, text = str(progress_prcnt_int) + '% Complete')
+
+                                # pt_iso = iso.isochrone(stop_lat, stop_lon, distances, attributes)
                                 pt_iso_shapes = pt_iso['shapes']
                                 for poly in pt_iso_shapes:
                                     stop_shapes.append(poly['polygon'])
 
                             pt_isochrone = gpd.GeoSeries(stop_shapes).unary_union
+                            progress_prcnt += pt_progress_units
+                            # print(progress_prcnt)
+                            if progress_prcnt > 100:
+                                progress_prcnt = 100
+                            progress_prcnt_int = int(progress_prcnt)
+                            progress_bar.progress(progress_prcnt_int, text = str(progress_prcnt_int) + '% Complete')
 
                             # The following section is for downloading and counting amenities.
                             if allow_amenities == True:
@@ -486,6 +580,13 @@ with col1:
                                 st.session_state.amenity_counts.append(amenity_count)
                                 # The above section is for downloading and counting amenities.
 
+                            progress_prcnt += pt_progress_units
+                            # print(progress_prcnt)
+                            if progress_prcnt > 100:
+                                progress_prcnt = 100
+                            progress_prcnt_int = int(progress_prcnt)
+                            progress_bar.progress(progress_prcnt_int, text = str(progress_prcnt_int) + '% Complete')
+
                             pt_iso_json = {"type": "FeatureCollection", "features":[], "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:EPSG::4326"}}}
 
                             iso_poly_json = gpd.GeoSeries([pt_isochrone]).to_json()
@@ -494,10 +595,10 @@ with col1:
 
                             st.session_state.polygon_features.append(pt_iso_json)
 
-                        progress_prcnt += progress_units
-                        if progress_prcnt > 100:
-                            progress_prcnt = 100
-                        progress_bar.progress(progress_prcnt, text = progress_text)
+                        # progress_prcnt += progress_units
+                        # if progress_prcnt > 100:
+                        #     progress_prcnt = 100
+                        # progress_bar.progress(progress_prcnt, text = progress_text)
 
                 st.session_state.results = True
                 # results = True
