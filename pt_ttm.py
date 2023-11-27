@@ -8,7 +8,7 @@ import osmnx as ox
 import pandas as pd
 import random
 
-os.system('cls')
+# os.system('cls')
 
 # # These are temporary inputs for testing purposes. Delete them later.
 # input_lat = -37.80240195043516
@@ -22,6 +22,23 @@ os.system('cls')
 # GTFS = ['Victoria/Bus.zip', 'Victoria/Tram.zip', 'Victoria/Metro.zip']
 
 def accessed_stops(input_lat, input_lon, GTFS, transfers, start_time, weekday, max_travel_mins, max_walk_mins):
+
+    os.system('cls')
+
+    if weekday == 'Monday':
+        weekday = 'monday'
+    elif weekday == 'Tuesday':
+        weekday = 'tuesday'
+    elif weekday == 'Wednesday':
+        weekday = 'wednesday'
+    elif weekday == 'Thursday':
+        weekday = 'thursday'
+    elif weekday == 'Friday':
+        weekday = 'friday'
+    elif weekday == 'Saturday':
+        weekday = 'saturday'
+    elif weekday == 'Sunday':
+        weekday = 'sunday'
 
     transfer_dist = 100 # Meters
 
@@ -43,6 +60,7 @@ def accessed_stops(input_lat, input_lon, GTFS, transfers, start_time, weekday, m
     # Opens all of the relevant .txt files and combines them into single dataframes.
     for file in GTFS:
         zip_ref = zipfile.ZipFile(file, 'r')
+        zip_contents = zip_ref.namelist()
 
         # Opens the stops.txt file as a dataframe.
         stops_txt = zip_ref.open('stops.txt')
@@ -56,22 +74,70 @@ def accessed_stops(input_lat, input_lon, GTFS, transfers, start_time, weekday, m
         stops_df = pd.concat([stops_df, file_stops_df], ignore_index = True)
 
         # Opens the calendar.txt file as a dataframe.
-        calendar_txt = zip_ref.open('calendar.txt')
-        file_calendar_df = pd.read_csv(calendar_txt, dtype = {
-        'service_id':'str',
-        'monday':'str',
-        'tuesday':'str',
-        'wednesday':'str',
-        'thursday':'str',
-        'friday':'str',
-        'saturday':'str',
-        'sunday':'str',
-        'start_date':'int64',
-        'end_date':'int64'
-        })
+        if 'calendar.txt' in zip_contents:
 
-        file_calendar_df['file'] = str(file)
-        calendar_df = pd.concat([calendar_df, file_calendar_df], ignore_index = True)
+            calendar_txt = zip_ref.open('calendar.txt')
+            file_calendar_df = pd.read_csv(calendar_txt, dtype = {
+            'service_id':'str',
+            'monday':'str',
+            'tuesday':'str',
+            'wednesday':'str',
+            'thursday':'str',
+            'friday':'str',
+            'saturday':'str',
+            'sunday':'str',
+            'start_date':'int64',
+            'end_date':'int64'
+            })
+
+            file_calendar_df['file'] = str(file)
+            calendar_df = pd.concat([calendar_df, file_calendar_df], ignore_index = True)
+
+        elif 'calendar.txt' not in zip_contents and 'calendar_dates.txt' in zip_contents:
+
+            calendar_dates_txt = zip_ref.open('calendar_dates.txt')
+            file_calendar_dates_df = pd.read_csv(calendar_dates_txt, dtype = {
+            'service_id':'str',
+            'date':'int64',
+            'exception_type':'str'
+            })
+
+            # file_calendar_df = pd.DataFrame()
+            # file_calendar_df['service_id'] = ''
+            # file_calendar_df['monday'] = '0'
+            # file_calendar_df['tuesday'] = '0'
+            # file_calendar_df['wednesday'] = '0'
+            # file_calendar_df['thursday'] = '0'
+            # file_calendar_df['friday'] = '0'
+            # file_calendar_df['saturday'] = '0'
+            # file_calendar_df['sunday'] = '0'
+            # file_calendar_df['start_date'] = 0
+            # file_calendar_df['end_date'] = 0
+
+            # dtype_dict = {'service_id':'str', 'monday':'str', 'tuesday':'str', 'wednesday':'str', 'thursday':'str', 'friday':'str', 'saturday':'str', 'sunday':'str', 'start_date':'int64', 'end_date':'int64'}
+
+            calendar_df_list = []
+            service_list = list(set(file_calendar_dates_df['service_id'].tolist()))
+            for service in service_list:
+                # new_row = {'service_id':service}
+                new_row = {'service_id':service, 'monday':'0', 'tuesday':'0', 'wednesday':'0', 'thursday':'0', 'friday':'0', 'saturday':'0', 'sunday':'0','start_date':0, 'end_date':0}
+                calendar_df_list.append(new_row)
+                # file_calendar_df.loc[len(file_calendar_df)] = new_row
+            file_calendar_df = pd.DataFrame.from_dict(calendar_df_list, orient = 'columns')
+
+            date_day_dict = {'0':'monday', '1':'tuesday', '2':'wednesday', '3':'thursday', '4':'friday', '5':'saturday', '6':'sunday'}
+            for index, row in file_calendar_dates_df.iterrows():
+                service_id = row['service_id']
+                date = row['date']
+                date_formatted = datetime.strptime(str(date), '%Y%m%d')
+                date_day_num = str(datetime.weekday(date_formatted))
+                date_day = date_day_dict[date_day_num]
+                file_calendar_df.iat[file_calendar_df.index[file_calendar_df['service_id'] == service_id].values[0], file_calendar_df.columns.get_loc(date_day)] = '1'
+                file_calendar_df.iat[file_calendar_df.index[file_calendar_df['service_id'] == service_id].values[0], file_calendar_df.columns.get_loc('start_date')] = date
+                file_calendar_df.iat[file_calendar_df.index[file_calendar_df['service_id'] == service_id].values[0], file_calendar_df.columns.get_loc('end_date')] = date
+
+            file_calendar_df['file'] = str(file)
+            calendar_df = pd.concat([calendar_df, file_calendar_df], ignore_index = True)
 
         # Opens the calendar_dates.txt file as a dataframe.
         calendar_dates_txt = zip_ref.open('calendar_dates.txt')
@@ -105,6 +171,64 @@ def accessed_stops(input_lat, input_lon, GTFS, transfers, start_time, weekday, m
 
         file_stop_times_df['file'] = str(file)
         stop_times_df = pd.concat([stop_times_df, file_stop_times_df], ignore_index = True)
+
+    # THIS SECTION STANDARDIZES THE DATES IN THE DIFFERENT GTFS DATASETS
+    GTFS_file_list = calendar_df['file'].tolist()
+    GTFS_file_list = list(set(GTFS_file_list))
+
+    if len(GTFS_file_list) > 1:
+        calendar_df_2 = calendar_df
+        file_counter = 0
+        first_start = ''
+        day_diff = ''
+        for file in GTFS_file_list:
+            file_counter += 1
+            if file_counter == 1:
+                first_start = calendar_df[calendar_df['file'] == file]['start_date'].min()
+            elif file_counter > 1:
+                file_start = calendar_df[calendar_df['file'] == file]['start_date'].min()
+                first_start_formatted = datetime.strptime(str(first_start), '%Y%m%d')
+                file_start_formatted = datetime.strptime(str(file_start), '%Y%m%d')
+                day_diff = first_start_formatted - file_start_formatted
+
+                for index, row in calendar_df.iterrows():
+                    file_name = row['file']
+                    if file_name == file:
+                        start_date_new = datetime.strptime(str(row['start_date']), '%Y%m%d') + day_diff
+                        start_date_new_int = int(start_date_new.strftime('%Y%m%d'))
+                        calendar_df_2.iat[index, calendar_df_2.columns.get_loc('start_date')] = start_date_new_int
+
+                        end_date_new = datetime.strptime(str(row['end_date']), '%Y%m%d') + day_diff
+                        end_date_new_int = int(start_date_new.strftime('%Y%m%d'))
+                        calendar_df_2.iat[index, calendar_df_2.columns.get_loc('end_date')] = start_date_new_int
+
+            file_counter = 0
+            calendar_df = calendar_df_2
+
+        for file in GTFS_file_list:
+            calendar_dates_df_2 = calendar_dates_df
+            file_counter += 1
+            if file_counter == 1:
+                pass
+                first_start = calendar_dates_df[calendar_dates_df['file'] == file]['date'].min()
+            elif file_counter > 1:
+                file_start = calendar_dates_df[calendar_dates_df['file'] == file]['date'].min()
+                first_start_formatted = datetime.strptime(str(first_start), '%Y%m%d')
+                file_start_formatted = datetime.strptime(str(file_start), '%Y%m%d')
+                day_diff = first_start_formatted - file_start_formatted
+                for index, row in calendar_dates_df.iterrows():
+                    file_name = row['file']
+                    if file_name == file:
+                        date_new = datetime.strptime(str(row['date']), '%Y%m%d') + day_diff
+                        date_new_int = int(date_new.strftime('%Y%m%d'))
+                        calendar_dates_df_2.iat[index, calendar_dates_df_2.columns.get_loc('date')] = date_new_int
+
+            calendar_dates_df = calendar_dates_df_2
+
+
+        # calendar_dates_df_2 = calendar_dates_df
+
+
 
     # THIS SECTION DETERMINES IF NEW IDS ARE REQUIRED, THEN MAKES THEM.
     # List of all stop IDs.
@@ -155,7 +279,7 @@ def accessed_stops(input_lat, input_lon, GTFS, transfers, start_time, weekday, m
         stop_name = row['stop_name']
         if 'location_type' in stops_df_columns:
             location_type = row['location_type']
-            if location_type == 0:
+            if location_type == 0 or str(location_type) == 'nan':
                 stops_dict[stop_id] = {'stop_name':stop_name, 'stop_lat':stop_lat, 'stop_lon':stop_lon, 'stop_times':[]}
                 stop_name_dict[stop_name] = []
 
@@ -184,7 +308,7 @@ def accessed_stops(input_lat, input_lon, GTFS, transfers, start_time, weekday, m
     for index, row in stops_df.iterrows():
         if 'location_type' in stops_df_columns:
             location_type = row['location_type']
-            if location_type == 0:
+            if location_type == 0 or str(location_type) == 'nan':
                 stop_id = row['stop_id']
                 stop_name = row['stop_name']
                 stop_name_dict[stop_name].append(stop_id)
@@ -233,7 +357,12 @@ def accessed_stops(input_lat, input_lon, GTFS, transfers, start_time, weekday, m
         origin_utm_lon = row['utm_lon']
         stops_df['distance'] = (abs(origin_utm_lat - stops_df['utm_lat'])**2 + abs(origin_utm_lon - stops_df['utm_lon'])**2)**0.5
         if 'location_type' in stops_df_columns:
-            transfer_nodes = stops_df[(stops_df['distance'] <= transfer_dist) & (stops_df['location_type'] == 0)]['stop_id'].values
+            if row['location_type'] == 0:
+                transfer_nodes = stops_df[(stops_df['distance'] <= transfer_dist) & (stops_df['location_type'] == 0)]['stop_id'].values
+            elif str(row['location_type']) == 'nan':
+                transfer_nodes = stops_df[(stops_df['distance'] <= transfer_dist) & (stops_df['location_type'].isnull())]['stop_id'].values
+            else:
+                continue
         else:
             transfer_nodes = stops_df[stops_df['distance'] <= transfer_dist]['stop_id'].values
         transfer_dict[origin_id] = transfer_nodes
@@ -264,12 +393,13 @@ def accessed_stops(input_lat, input_lon, GTFS, transfers, start_time, weekday, m
         previous_day = 'saturday'
 
     # THIS SECTION PROCESSES THE CALENDAR DATAFRAME.
-    first_date = 30000101
-    for index, row in calendar_df.iterrows():
-        service_id = row['service_id']
-        start_date = row['start_date']
-        if start_date < first_date:
-            first_date = start_date
+    first_date = calendar_df['start_date'].min()
+    # first_date = 30000101
+    # for index, row in calendar_df.iterrows():
+    #     service_id = row['service_id']
+    #     start_date = row['start_date']
+    #     if start_date < first_date:
+    #         first_date = start_date
 
     first_date = str(first_date)
     first_year = int(first_date[:4])
@@ -302,14 +432,16 @@ def accessed_stops(input_lat, input_lon, GTFS, transfers, start_time, weekday, m
     sunday = int((first_monday + timedelta(days = 6)).strftime('%Y%m%d'))
     date_dict['sunday'] = sunday
 
+    service_set = set()
     calendar_dict = {}
     for index, row in calendar_df.iterrows():
         service_id = row['service_id']
         weekdays = list(date_dict.keys())
         weekday_dict = {}
-        for weekday in weekdays:
-            weekday_dict[date_dict[weekday]] = '0'
+        for day in weekdays:
+            weekday_dict[date_dict[day]] = '0'
         calendar_dict[service_id] = weekday_dict
+        service_set.add(service_id)
 
     for index, row in calendar_df.iterrows():
         service_id = row['service_id']
@@ -335,6 +467,11 @@ def accessed_stops(input_lat, input_lon, GTFS, transfers, start_time, weekday, m
         service_id = row['service_id']
         date = row['date']
         exception_type = row['exception_type']
+        if service_id not in service_set:
+            weekday_dict = {}
+            for day in weekdays:
+                weekday_dict[date_dict[day]] = '0'
+            calendar_dict[service_id] = weekday_dict
         if date >= date_dict['monday'] and date <= date_dict['sunday']:
             if exception_type == '1':
                 calendar_dict[service_id][date] = '1'
@@ -432,26 +569,40 @@ def accessed_stops(input_lat, input_lon, GTFS, transfers, start_time, weekday, m
 
                 # Adjusts the departure time, if later than 23:59.
                 departure_time = stop_time['departure_time']
-                departure_hour = int(departure_time[:2])
+
+                if departure_time[1:2] == ':':
+                    departure_hour = int(departure_time[:1])
+                    departure_mins = int(departure_time[2:4])
+                else:
+                    departure_hour = int(departure_time[:2])
+                    departure_mins = int(departure_time[3:5])
+
                 if departure_hour >= 24:
                     depart_change = 'y'
                     new_departure_hour = str(departure_hour - 24)
                     if len(new_departure_hour) < 2:
                         new_departure_hour = '0' + new_departure_hour
-                    departure_time_mins = (int(new_departure_hour) * 60) + int(departure_time[3:5])
+                    departure_time_mins = (int(new_departure_hour) * 60) + departure_mins
                 else:
-                    departure_time_mins = (departure_hour * 60) + int(departure_time[3:5])
+                    departure_time_mins = (departure_hour * 60) + departure_mins
 
                 # Adjusts the arrival time, if later than 23:59.
                 arrival_time = stop_time['arrival_time']
-                arrival_hour = int(arrival_time[:2])
+
+                if arrival_time[1:2] == ':':
+                    arrival_hour = int(arrival_time[:1])
+                    arrival_mins = int(arrival_time[2:4])
+                else:
+                    arrival_hour = int(arrival_time[:2])
+                    arrival_mins = int(arrival_time[3:5])
+
                 if arrival_hour >= 24:
                     new_arrival_hour = str(arrival_hour - 24)
                     if len(new_arrival_hour) < 2:
                         new_arrival_hour = '0' + new_arrival_hour
-                    arrival_time_mins = (int(new_arrival_hour) * 60) + int(arrival_time[3:5])
+                    arrival_time_mins = (int(new_arrival_hour) * 60) + arrival_mins
                 else:
-                    arrival_time_mins = (arrival_hour * 60) + int(arrival_time[3:5])
+                    arrival_time_mins = (arrival_hour * 60) + arrival_mins
 
                 # Checks to see if the departure and arrival times are valid with the time constraints.
                 if departure_time_mins >= start_time_mins and arrival_time_mins <= end_time_mins:
